@@ -1,16 +1,233 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hello World</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek-V4 Chat</title>
   <style>
-    body { font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; background: #f6f8fa; }
-    h1 { font-size: 3rem; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: #f4f4f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .chat-container {
+      width: 100%;
+      max-width: 700px;
+      height: 90vh;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-header {
+      padding: 16px 20px;
+      background: #0066ff;
+      color: #ffffff;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .chat-box {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background-color: #0066ff;
+      color: #ffffff;
+      border-bottom-right-radius: 2px;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background-color: #eef2f5;
+      color: #222222;
+      border-bottom-left-radius: 2px;
+    }
+
+    .chat-input-area {
+      padding: 16px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 10px;
+      background: #ffffff;
+    }
+
+    textarea {
+      flex: 1;
+      resize: none;
+      height: 48px;
+      padding: 12px;
+      border: 1px solid #cccccc;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: #0066ff;
+    }
+
+    button {
+      padding: 0 20px;
+      background-color: #0066ff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0052cc;
+    }
+
+    button:disabled {
+      background-color: #a0c4ff;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
-  <h1>Hello, world!</h1>
-  <p>Created with Muse.</p>
+
+  <div class="chat-container">
+    <div class="chat-header">DeepSeek-V4 Flash Chat</div>
+    <div class="chat-box" id="chatBox"></div>
+    <div class="chat-input-area">
+      <textarea id="userInput" placeholder="Type a message..." rows="1"></textarea>
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "https://api.apmix.ai/v1/chat/completions";
+    const API_KEY = "apx_live_XuemnuQhPPjDoWqkq19wVTgM1Z2AvUIqWxALwjQM";
+    const MODEL = "deepseek/deepseek-v4-flash-free";
+
+    const chatBox = document.getElementById("chatBox");
+    const userInput = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+
+    let conversationHistory = [];
+
+    function appendMessage(role, text) {
+      const msgDiv = document.createElement("div");
+      msgDiv.classList.add("message", role);
+      msgDiv.textContent = text;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return msgDiv;
+    }
+
+    async function sendMessage() {
+      const text = userInput.value.trim();
+      if (!text) return;
+
+      // Add user message to UI and history
+      appendMessage("user", text);
+      conversationHistory.push({ role: "user", content: text });
+
+      userInput.value = "";
+      sendBtn.disabled = true;
+
+      // Create temporary placeholder for assistant output
+      const assistantMessageDiv = appendMessage("assistant", "...");
+      let assistantResponse = "";
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: conversationHistory,
+            stream: true
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        assistantMessageDiv.textContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.replace("data: ", "").trim();
+              if (dataStr === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.choices[0]?.delta?.content || "";
+                assistantResponse += delta;
+                assistantMessageDiv.textContent = assistantResponse;
+                chatBox.scrollTop = chatBox.scrollHeight;
+              } catch (err) {
+                // Ignore partial JSON parsing glitches in streaming chunks
+              }
+            }
+          }
+        }
+
+        // Save complete assistant message to memory
+        conversationHistory.push({ role: "assistant", content: assistantResponse });
+
+      } catch (error) {
+        assistantMessageDiv.textContent = `Error: ${error.message}`;
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+
+    userInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
 </body>
 </html>
